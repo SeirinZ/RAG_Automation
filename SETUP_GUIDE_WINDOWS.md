@@ -309,7 +309,71 @@ RAG_Automation/
 ├── processed_pdfs/      # RCA documents (4 files)
 ├── pdf_uploads/         # For new uploads
 ├── chroma_db/           # Vector database
+├── n8n_data/            # n8n workflows (from backup)
+├── docker_data/         # Open WebUI data (from backup)
 ├── main.py              # Entry point
 ├── requirements.txt     # Dependencies
+├── Dockerfile           # Docker image for RAG API
+├── docker-compose.yml   # All services
 └── SETUP_GUIDE_WINDOWS.md
 ```
+
+---
+
+## DOCKER SETUP (Optional - for Open WebUI & n8n)
+
+### Install Docker Desktop
+1. Download dari https://www.docker.com/products/docker-desktop/
+2. Install dan restart PC
+3. Enable WSL 2 saat diminta
+4. Verify:
+   ```powershell
+   docker --version
+   docker-compose --version
+   ```
+
+### Restore Docker Data (dari Mac)
+
+**File backup:** `docker_backup.tar.gz` (transfer via USB/cloud)
+
+```powershell
+# Di Windows, extract backup
+cd C:\Users\YourName\Desktop\RAG_Automation
+tar -xzvf docker_backup.tar.gz
+```
+
+Ini akan membuat:
+- `n8n_data/` - n8n workflows dan settings
+- `docker_data/open-webui/` - Open WebUI data
+
+### Jalankan Semua Services
+
+```powershell
+# Start semua (RAG API + Open WebUI + n8n)
+docker-compose up -d
+
+# Lihat logs
+docker-compose logs -f
+
+# Stop semua
+docker-compose down
+```
+
+### Service URLs
+
+| Service | URL | Keterangan |
+|---------|-----|------------|
+| RAG API | http://localhost:8000/docs | Swagger UI |
+| Open WebUI | http://localhost:3000 | Chat interface |
+| n8n | http://localhost:5678 | Workflow automation |
+
+### n8n Default Login
+- Username: `admin`
+- Password: `changeme`
+
+**PENTING:** Ganti password di production!
+
+### Catatan Docker
+- Ollama harus di-install langsung di Windows (bukan Docker) untuk akses GPU
+- Open WebUI otomatis connect ke Ollama via `host.docker.internal`
+- Data tersimpan di folder lokal, bukan Docker volume
