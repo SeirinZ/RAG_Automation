@@ -1,0 +1,61 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+
+# Database (regenerate di target machine)
+chroma_db/
+chroma_db_old/
+*.sqlite
+*.db
+
+# Uploads (empty folder, PDFs di processed_pdfs)
+pdf_uploads/
+
+# Logs
+*.log
+server.log
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.temp
+n8n_data/
+
+# Large reference PDFs (not RCA documents)
+Pump\ Handbook\ -\ Igor\ J\ K.pdf
+Pump\ Handbook*
+APC022_Training_Material_Virtual.pdf
+
+# Old/unused files
+rag_api_old.py
+MONITORING.md
+monitor.py
+RCAI.py
+.qodo/
+
+# Extracted preprocessing files (can regenerate)
+processed_pdfs/extracted/
