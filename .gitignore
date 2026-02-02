@@ -43,7 +43,11 @@ Thumbs.db
 # Temp
 *.tmp
 *.temp
+
+# Docker data folders (migrate via backup tarball)
 n8n_data/
+docker_data/
+docker_backup.tar.gz
 
 # Large reference PDFs (not RCA documents)
 Pump\ Handbook\ -\ Igor\ J\ K.pdf
