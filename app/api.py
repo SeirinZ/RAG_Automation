@@ -3,8 +3,9 @@ FastAPI endpoints
 """
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import shutil
 import logging
@@ -53,6 +54,22 @@ app.add_middleware(
 )
 
 app.include_router(openai_router)
+
+# Serve PDF files for source linking
+@app.get("/pdf/{filename}")
+async def get_pdf(filename: str):
+    """Serve PDF file for viewing sources"""
+    pdf_path = Path(settings.PROCESSED_DIR) / filename
+    if not pdf_path.exists():
+        # Try upload dir as fallback
+        pdf_path = Path(settings.UPLOAD_DIR) / filename
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail=f"PDF not found: {filename}")
+    return FileResponse(
+        path=str(pdf_path),
+        media_type="application/pdf",
+        filename=filename
+    )
 
 @app.get("/")
 async def root():

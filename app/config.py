@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     # Uses query/passage prefixes via E5EmbeddingWrapper in models.py
     EMBEDDING_MODEL: str = "intfloat/multilingual-e5-base"
 
-    # LLM: llama3.1:8b via Ollama (faster, lighter)
-    LLM_MODEL: str = "llama3.1:8b"
+    # LLM: qwen2.5:14b via Ollama (more capable)
+    LLM_MODEL: str = "qwen2.5:14b"
     LLM_TEMPERATURE: float = 0.0      # Zero for deterministic, factual answers
     LLM_NUM_CTX: int = 8192           # 8k context for 8b model
 
@@ -42,18 +42,18 @@ class Settings(BaseSettings):
     EXTRACT_TABLES: bool = False      # Disable table extraction for RCA forms (creates garbage)
     PREPEND_CONTEXT: bool = True      # Prepend AR# and title to each chunk
 
-    # Retrieval: Balanced for speed and comprehensiveness
-    TOP_K: int = 10                   # 10 chunks - good balance
+    # Retrieval: Optimized for completeness
+    TOP_K: int = 15                   # More chunks for comprehensive answers
 
     # Hybrid search weights
-    SEMANTIC_WEIGHT: float = 0.6      # Slightly favor semantic (better embeddings now)
-    KEYWORD_WEIGHT: float = 0.4       # Still important for exact term matching
+    SEMANTIC_WEIGHT: float = 0.55     # Balanced semantic
+    KEYWORD_WEIGHT: float = 0.45      # Boost keyword for exact matches (AR#, equipment tags)
 
-    # Reranking: Wider net, stricter selection
+    # Reranking: Wide net, quality selection
     USE_RERANKING: bool = True
-    RERANK_TOP_K: int = 80            # Cast wider net before reranking
-    RELEVANCE_THRESHOLD: float = -6.0 # More permissive to catch relevant chunks
-    MIN_CHUNKS: int = 7               # More chunks for completeness
+    RERANK_TOP_K: int = 100           # Wider net before reranking
+    RELEVANCE_THRESHOLD: float = -7.0 # More permissive threshold
+    MIN_CHUNKS: int = 10              # Minimum chunks for completeness
 
     # ============================================================
     # API SETTINGS 
@@ -75,26 +75,27 @@ Path(settings.CHROMA_DIR).mkdir(exist_ok=True)
 # ============================================================
 # PROMPT TEMPLATE - OPTIMIZED FOR RCA DOCUMENTS
 # ============================================================
-RAG_PROMPT_TEMPLATE = """You are a Root Cause Analysis (RCA) documentation expert. Answer the question using ONLY the provided context.
+RAG_PROMPT_TEMPLATE = """You are a Root Cause Analysis (RCA) expert assistant. Your task is to provide COMPLETE and ACCURATE answers based ONLY on the provided context.
 
-CONTEXT (from multiple sources):
+=== CONTEXT FROM RCA DOCUMENTS ===
 {context}
+=== END CONTEXT ===
 
 QUESTION: {question}
 
-INSTRUCTIONS:
-1. Use ONLY information explicitly stated in the context above
-2. Pay attention to source attribution - each source has [Source X: filename, page Y]
-3. When asked about a specific AR/case, ONLY use information from that AR's document
-4. For chronological events: Present in time order with dates/times
-5. For root causes: List all contributing factors mentioned
-6. For CAPA/actions: Include responsible persons and deadlines if mentioned
-7. Preserve exact:
-   - AR numbers (e.g., AR# 117422)
-   - Equipment tags (e.g., PDS#1, KV-4106-1F)
-   - Dates and times
-   - Technical parameters
-8. If information is not found, state: "The requested information was not found in the provided context."
-9. If multiple documents discuss the same topic, synthesize but note which source each fact comes from
+CRITICAL INSTRUCTIONS:
+1. READ ALL CONTEXT CAREFULLY before answering - do not skip any section
+2. Provide COMPLETE information - include ALL relevant details found in the context
+3. Use ONLY information from the context above - never make assumptions or add external knowledge
+4. Add inline citations after each fact: *(AR# xxxxx)* or *(filename)*
+   Example: "Motor failed due to bearing overheat *(AR# 114628)*. Temperature reached 100°C *(AR# 114628)*."
+
+ANSWER FORMAT:
+- For "what happened" questions: Describe the full chronology with dates/times
+- For "root cause" questions: List ALL contributing factors and the primary root cause
+- For "what actions" questions: Include responsible persons, deadlines, and status
+- For technical questions: Include exact values, equipment tags, parameters
+
+If information is not found, say: "Informasi tidak ditemukan dalam dokumen yang tersedia."
 
 ANSWER:"""

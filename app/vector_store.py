@@ -1,9 +1,9 @@
 """
 Vector store operations - Optimized for RCA/Technical Documents
 """
-from langchain_community.vectorstores import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.docstore.document import Document
+from langchain_chroma import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 from pathlib import Path
 from datetime import datetime
 import logging
@@ -54,10 +54,20 @@ def clean_rca_text(text: str) -> str:
 # FILENAME TO AR# MAPPING (Guaranteed AR# for all chunks)
 # ============================================================
 FILENAME_TO_AR = {
+    # Numeric AR files
+    '114628.pdf': ('114628', 'UCC1 Cata-cut due to TAHH TE-7004-7A Bearing Melt Pump Motor'),
     '115700.pdf': ('115700', 'Loss additive due to master mix feeder equipment problem'),
-    '117422.pdf': ('117422', 'Unplanned Shutdown due to High Distributor Plate DP - Oct 2024'),
+    '235.pdf': ('235', 'RCA Document 235'),
+    '236.pdf': ('236', 'RCA Document 236'),
+    '319_Notes.pdf': ('319', 'RCA Notes 319'),
+    # Named AR files
+    'AROL 418 K-4003 DGS Contaminated by lube oil.pdf': ('418', 'Reactor extend shutdown - DGS K-4003 contaminated by lube oil'),
+    # EPR format files
+    'EPR-F2421-2023-06-1.pdf': ('EPR-F2421-2023-06-1', 'EPR Report June 2023'),
+    'EPR-F2421-2023-07-2.pdf': ('EPR-F2421-2023-07-2', 'EPR Report July 2023'),
     'EPR-F2423-2023-06-1.pdf': ('EPR-F2423-2023-06-1', 'UCC1 Down Rate due to valve PDS#2 F broken'),
-    'RCA file 1 with guide.pdf': ('OPR-F2222-2023-07-1', 'UCC1 Rate down due to Sheeting at PDS#1'),
+    'EPR-F2423-2023-07-1.pdf': ('EPR-F2423-2023-07-1', 'EPR Report July 2023'),
+    'EPR-F2423-2023-08-1.pdf': ('EPR-F2423-2023-08-1', 'EPR Report August 2023'),
 }
 
 
@@ -70,23 +80,48 @@ def extract_rca_metadata(text: str, filename: str) -> dict:
         ar_num, ar_title = FILENAME_TO_AR[filename]
         metadata['ar_number'] = ar_num
         metadata['ar_title'] = ar_title
+        logger.info(f"  📋 AR# from mapping: {ar_num}")
     else:
-        # Fallback: Extract AR Number from text
-        ar_patterns = [
-            r'AR\s*#\s*(\d+)',                           # AR# 117422
-            r'AR\s*Number\s*[:\s]*([A-Z0-9\-]+)',       # AR Number: 117422
-            r'AR\s*No\.?\s*[:\s]*([A-Z0-9\-]+)',        # AR No: 117422
-            r'([A-Z]{2,3}-F\d{4}-\d{4}-\d{2}-\d+)',     # EPR-F2423-2023-06-1
-            r'([A-Z]{2,3}-F\d{4}-\d{4}-\d{2})',         # OPR-F2222-2023-07
-        ]
+        # Try to extract from filename directly
+        name_only = filename.replace('.pdf', '')
 
-        for pattern in ar_patterns:
-            ar_match = re.search(pattern, text, re.IGNORECASE)
-            if ar_match:
-                metadata['ar_number'] = ar_match.group(1).strip()
-                break
+        # Numeric filename = AR number
+        if name_only.isdigit():
+            metadata['ar_number'] = name_only
+            metadata['ar_title'] = f'RCA Document {name_only}'
+            logger.info(f"  📋 AR# from numeric filename: {name_only}")
+        # EPR/OPR format
+        elif name_only.startswith(('EPR-', 'OPR-')):
+            metadata['ar_number'] = name_only
+            metadata['ar_title'] = name_only
+            logger.info(f"  📋 AR# from EPR/OPR filename: {name_only}")
+        # Try to extract leading number
+        else:
+            num_match = re.match(r'^(\d+)', name_only)
+            if num_match:
+                metadata['ar_number'] = num_match.group(1)
+                metadata['ar_title'] = name_only
+                logger.info(f"  📋 AR# from filename prefix: {num_match.group(1)}")
 
-        # Extract Title from text
+        # Fallback: Extract AR Number from text (only if not already found)
+        if not metadata.get('ar_number'):
+            ar_patterns = [
+                r'AR\s*#\s*(\d+)',                           # AR# 117422
+                r'AR\s*Number\s*[:\s]*([A-Z0-9\-]+)',       # AR Number: 117422
+                r'AR\s*No\.?\s*[:\s]*([A-Z0-9\-]+)',        # AR No: 117422
+                r'([A-Z]{2,3}-F\d{4}-\d{4}-\d{2}-\d+)',     # EPR-F2423-2023-06-1
+                r'([A-Z]{2,3}-F\d{4}-\d{4}-\d{2})',         # OPR-F2222-2023-07
+            ]
+
+            for pattern in ar_patterns:
+                ar_match = re.search(pattern, text, re.IGNORECASE)
+                if ar_match:
+                    metadata['ar_number'] = ar_match.group(1).strip()
+                    logger.info(f"  📋 AR# from text: {metadata['ar_number']}")
+                    break
+
+    # Extract Title from text (if not already set)
+    if not metadata.get('ar_title'):
         title_match = re.search(r'Title\s*[:\s]*([^\n]+)', text, re.IGNORECASE)
         if title_match:
             title = title_match.group(1).strip()
@@ -153,7 +188,7 @@ class VectorStoreManager:
         """Get number of chunks in database"""
         try:
             return self.vectorstore._collection.count()
-        except:
+        except Exception:
             return 0
     
     def get_all_documents(self) -> list[Document]:
@@ -333,7 +368,6 @@ class VectorStoreManager:
                         text = pytesseract.image_to_string(image, lang='eng')
 
                         if text.strip():  # Only add if text found
-                            from langchain.docstore.document import Document
                             ocr_docs.append(Document(
                                 page_content=text,
                                 metadata={
@@ -366,7 +400,9 @@ class VectorStoreManager:
 
             # Extract document-level metadata from first few pages
             full_text = "\n".join([doc.page_content for doc in docs[:5]])
+            logger.info(f"  🔍 Extracting metadata for: '{filename}'")
             doc_metadata = extract_rca_metadata(full_text, filename)
+            logger.info(f"  🔍 Extracted metadata: {doc_metadata}")
 
             if doc_metadata.get('ar_number'):
                 logger.info(f"  📋 Found AR#: {doc_metadata.get('ar_number')}")
@@ -394,18 +430,45 @@ class VectorStoreManager:
             # Chunk text content
             text_chunks = self.text_splitter.split_documents(docs)
 
-            # Prepend AR# context to each chunk for better retrieval
-            if settings.PREPEND_CONTEXT and doc_metadata.get('ar_number'):
-                ar_num = doc_metadata.get('ar_number', '')
-                ar_title = doc_metadata.get('ar_title', '')
-                context_prefix = f"[AR# {ar_num}] {ar_title}\n\n"
+            # ALWAYS prepend AR# context to each chunk for better retrieval
+            # Extract AR# from filename (most reliable)
+            name_only = filename.replace('.pdf', '').replace('.PDF', '')
 
-                for chunk in text_chunks:
-                    chunk.page_content = context_prefix + chunk.page_content
+            # Determine AR number from filename
+            if name_only.isdigit():
+                ar_num = name_only
+                ar_title = doc_metadata.get('ar_title', f'RCA Document {name_only}')
+            elif name_only.startswith(('EPR-', 'OPR-', 'AROL')):
+                ar_num = name_only.split()[0] if ' ' in name_only else name_only
+                ar_title = doc_metadata.get('ar_title', name_only)
+            elif filename in FILENAME_TO_AR:
+                ar_num, ar_title = FILENAME_TO_AR[filename]
+            else:
+                # Try to extract number from start of filename
+                num_match = re.match(r'^(\d+)', name_only)
+                if num_match:
+                    ar_num = num_match.group(1)
+                    ar_title = name_only
+                else:
+                    ar_num = name_only
+                    ar_title = name_only
 
-                logger.info(f"  📌 Prepended AR# context to all chunks")
+            # Prepend context to ALL chunks - create new Documents
+            context_prefix = f"[AR# {ar_num}] {ar_title}\n\n"
+            logger.info(f"  📌 Adding prefix: {context_prefix.strip()}")
 
-            all_chunks.extend(text_chunks)
+            prefixed_chunks = []
+            for chunk in text_chunks:
+                new_content = context_prefix + chunk.page_content
+                new_chunk = Document(
+                    page_content=new_content,
+                    metadata=chunk.metadata.copy()
+                )
+                prefixed_chunks.append(new_chunk)
+
+            logger.info(f"  ✅ Created {len(prefixed_chunks)} prefixed chunks")
+
+            all_chunks.extend(prefixed_chunks)
             logger.info(f"  ✓ Created {len(text_chunks)} text chunks (cleaned)")
 
         # === NON-PDF FILES ===

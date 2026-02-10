@@ -63,3 +63,7 @@ RCAI.py
 
 # Extracted preprocessing files (can regenerate)
 processed_pdfs/extracted/
+
+# PDF files
+processed_pdfs/*.pdf
+pdf_uploads/*.pdf

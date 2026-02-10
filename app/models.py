@@ -3,7 +3,7 @@ Machine learning models initialization - OPTIMIZED FOR QWEN2.5:14B + E5 EMBEDDIN
 """
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from typing import List
 import logging

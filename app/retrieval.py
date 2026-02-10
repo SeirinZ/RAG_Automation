@@ -1,10 +1,12 @@
 """
 Advanced retrieval with hybrid search and reranking
 """
-from langchain.retrievers import EnsembleRetriever
+from langchain_classic.retrievers import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
-from langchain.chains import RetrievalQA
+from langchain_classic.chains import RetrievalQA
+from langchain_core.documents import Document
 import logging
+import re
 
 from .config import settings
 from .models import model_manager
@@ -24,33 +26,52 @@ class HybridRetriever:
     def expand_query(self, question: str) -> list[str]:
         """Smart query expansion for comprehensive retrieval
 
-        Detects query intent and adds targeted variations to improve retrieval:
+        Handles:
+        - AR# number queries: Extract number and search by content
         - Table/structured data queries: Boost actual data tables
         - Structural queries (categories/groups): Boost table of contents
-        - General queries: No expansion (use original only)
         """
         queries = [question]
         question_lower = question.lower()
 
-        # Detect tabular/structured data queries (attributes, specs, detailed lists)
+        # Detect AR# queries and expand with content-based search
+        ar_patterns = [
+            r'AR[#\s]*(\d+)',           # AR# 114628, AR 114628
+            r'ar[#\s]*(\d+)',           # ar# 114628
+            r'(EPR-F\d+-\d+-\d+-\d+)',  # EPR-F2421-2023-06-1
+            r'(OPR-F\d+-\d+-\d+-\d+)',  # OPR format
+        ]
+
+        for pattern in ar_patterns:
+            match = re.search(pattern, question, re.IGNORECASE)
+            if match:
+                ar_num = match.group(1)
+                # Add filename-based search
+                queries.append(f"{ar_num}.pdf")
+                # Add content search without AR# prefix
+                clean_query = re.sub(r'AR[#\s]*\d+', '', question, flags=re.IGNORECASE).strip()
+                if clean_query and len(clean_query) > 5:
+                    queries.append(clean_query)
+                break
+
+        # Detect tabular/structured data queries
         table_data_keywords = [
             "variables", "parameters", "tags", "settings", "configuration",
             "specifications", "values", "properties", "attributes",
             "failures", "errors", "issues", "causes", "solutions", "steps",
-            "procedures", "requirements", "recommendations"
+            "procedures", "requirements", "recommendations",
+            "root cause", "penyebab", "kronologi", "chronology"
         ]
         is_table_data_query = any(keyword in question_lower for keyword in table_data_keywords)
 
-        # Detect listing questions (requesting enumeration/list)
-        listing_keywords = ["apa saja", "what are", "what is", "sebutkan", "list", "daftar", "how many"]
+        # Detect listing questions
+        listing_keywords = ["apa saja", "what are", "what is", "sebutkan", "list", "daftar", "how many", "jelaskan"]
         is_listing_query = any(keyword in question_lower for keyword in listing_keywords)
 
         if is_listing_query:
             if is_table_data_query:
-                # For table/structured data: Add "Table" to boost data tables/sections
                 queries.append(f"Table {question}")
             else:
-                # For high-level structure queries: Add "contents" to boost ToC
                 queries.append(f"contents {question}")
 
         return queries
@@ -129,7 +150,7 @@ class HybridRetriever:
             seen_contents = set()
 
             for query in query_variations:
-                docs = retriever.get_relevant_documents(query)
+                docs = retriever.invoke(query)
                 for doc in docs:
                     # Deduplicate by content hash
                     content_hash = hash(doc.page_content[:200])
@@ -171,20 +192,28 @@ class HybridRetriever:
             avg_score = sum(score for _, score in doc_score_pairs[:len(filtered_docs)]) / len(filtered_docs) if filtered_docs else 0
             logger.info(f"  ✓ Selected {len(filtered_docs)} chunks (avg score: {avg_score:.2f})")
 
-            # STEP 4: Build rich context with source info (optimized for 8B model)
+            # STEP 4: Build rich context with clear source markers
             context_parts = []
             for i, doc in enumerate(filtered_docs, 1):
                 source = doc.metadata.get('filename', 'Unknown')
+                ar_num = doc.metadata.get('ar_number', '')
                 page = doc.metadata.get('page', '')
-                # Clear header with box format for better parsing
-                header = f"=== SOURCE {i} === File: {source}" + (f" | Page: {page}" if page else "") + " ==="
-                context_parts.append(f"{header}\n{doc.page_content}\n=== END SOURCE {i} ===")
 
-            context = "\n\n".join(context_parts)
+                # Clear header for easy LLM parsing
+                if ar_num:
+                    header = f"[Document {i}: AR# {ar_num} - {source}]"
+                else:
+                    header = f"[Document {i}: {source}]"
+                if page:
+                    header += f" (Page {page})"
+
+                context_parts.append(f"{header}\n{doc.page_content}")
+
+            context = "\n\n---\n\n".join(context_parts)
 
             # STEP 5: Query LLM with rich context
             prompt_text = model_manager.prompt.format(context=context, question=question)
-            answer = model_manager.llm(prompt_text)
+            answer = model_manager.llm.invoke(prompt_text)
 
             return {
                 'result': answer,
@@ -208,7 +237,7 @@ class HybridRetriever:
         
         # Get raw retrieval results (before reranking)
         retriever = vector_store.get_retriever(k=settings.RERANK_TOP_K)
-        raw_docs = retriever.get_relevant_documents(question)
+        raw_docs = retriever.invoke(question)
         
         logger.info(f"\n{'='*60}")
         logger.info(f"QUERY: {question}")
@@ -246,7 +275,7 @@ class HybridRetriever:
         logger.info(f"\n📤 FINAL CONTEXT TO LLM ({len(context)} chars):")
         logger.info(f"{context[:1000]}...")
         
-        answer = model_manager.llm(prompt_text)
+        answer = model_manager.llm.invoke(prompt_text)
         
         logger.info(f"\n💬 ANSWER: {answer[:500]}...")
         logger.info(f"{'='*60}\n")
